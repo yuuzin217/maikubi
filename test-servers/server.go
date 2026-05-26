@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -29,6 +30,29 @@ type OuterMeta struct {
 	ServerEnv string `json:"server_env"`
 }
 
+// XML リクエスト/レスポンス用の構造体
+type XMLUserRequest struct {
+	XMLName xml.Name `xml:"request"`
+	Name    string   `xml:"name"`
+	Role    string   `xml:"role"`
+}
+
+type XMLUserResponse struct {
+	XMLName   xml.Name `xml:"response"`
+	ID        int      `xml:"id"`
+	Name      string   `xml:"name"`
+	Role      string   `xml:"role"`
+	Email     string   `xml:"email,omitempty"`
+	Timestamp int64    `xml:"timestamp"`
+	RequestID string   `xml:"request_id"`
+	Meta      XMLMeta  `xml:"meta"`
+}
+
+type XMLMeta struct {
+	Version   string `xml:"version"`
+	ServerEnv string `xml:"server_env"`
+}
+
 func main() {
 	envName := os.Getenv("ENV_NAME")
 	if envName == "" {
@@ -42,6 +66,7 @@ func main() {
 
 	rand.Seed(time.Now().UnixNano())
 
+	// JSON 用エンドポイント
 	http.HandleFunc("/api/v1/users", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -94,6 +119,61 @@ func main() {
 		}
 
 		json.NewEncoder(w).Encode(resp)
+	})
+
+	// XML 用エンドポイント
+	http.HandleFunc("/api/v1/xml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+
+		reqID := fmt.Sprintf("%x-%x", rand.Int31(), rand.Int31())
+
+		name := "Alice"
+		role := "User"
+		var email string
+
+		// POST リクエストの場合、リクエストボディから XML を読み取る
+		if r.Method == http.MethodPost {
+			var req XMLUserRequest
+			if err := xml.NewDecoder(r.Body).Decode(&req); err == nil {
+				if req.Name != "" {
+					name = req.Name
+				}
+				if req.Role != "" {
+					role = req.Role
+				}
+			}
+		}
+
+		// Staging環境のみ、意図的なデグレーションを含める
+		if envName == "staging" {
+			name = name + " Pro"
+			role = "Administrator"
+			if r.Method == http.MethodPost {
+				email = "posted.user.pro@example.com"
+			} else {
+				email = "alice.pro@example.com"
+			}
+		}
+
+		resp := XMLUserResponse{
+			ID:        100,
+			Name:      name,
+			Role:      role,
+			Email:     email,
+			Timestamp: time.Now().UnixNano() / int64(time.Millisecond),
+			RequestID: reqID,
+			Meta: XMLMeta{
+				Version:   "v1.0.0",
+				ServerEnv: envName,
+			},
+		}
+
+		if envName == "staging" {
+			resp.Meta.Version = "v1.1.0"
+		}
+
+		w.Write([]byte(xml.Header))
+		xml.NewEncoder(w).Encode(resp)
 	})
 
 	fmt.Printf("Starting mock API server [%s] on port %s...\n", envName, port)

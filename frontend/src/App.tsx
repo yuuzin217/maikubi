@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 import { SendDiffRequest, RecomputeDiff } from "../wailsjs/go/main/App";
 import { DiffViewer } from "./components/DiffViewer";
@@ -12,23 +12,61 @@ const formatJSON = (bodyStr: string) => {
     }
 };
 
+const STORAGE_KEY = 'maikubi_saved_config';
+
+const DEFAULT_CONFIG = {
+    path: '/api/v1/users',
+    method: 'GET',
+    body: '',
+    targets: {
+        production: 'http://localhost:8081',
+        staging: 'http://localhost:8082',
+        baseline: 'http://localhost:8083'
+    },
+    manualIgnores: []
+};
+
 function App() {
-    const [path, setPath] = useState('/posts/1');
-    const [method, setMethod] = useState('GET');
-    const [body, setBody] = useState('');
-    const [targets, setTargets] = useState({
-        production: 'https://jsonplaceholder.typicode.com',
-        staging: 'https://jsonplaceholder.typicode.com',
-        baseline: 'https://jsonplaceholder.typicode.com'
-    });
+    // ローカルストレージから保存された設定を読み出すヘルパー
+    const getInitialConfig = () => {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return {
+                    path: parsed.path ?? DEFAULT_CONFIG.path,
+                    method: parsed.method ?? DEFAULT_CONFIG.method,
+                    body: parsed.body ?? DEFAULT_CONFIG.body,
+                    targets: parsed.targets ?? DEFAULT_CONFIG.targets,
+                    manualIgnores: parsed.manualIgnores ?? DEFAULT_CONFIG.manualIgnores
+                };
+            }
+        } catch (e) {
+            console.error("Failed to load saved config from localStorage:", e);
+        }
+        return DEFAULT_CONFIG;
+    };
+
+    const initial = getInitialConfig();
+
+    const [path, setPath] = useState(initial.path);
+    const [method, setMethod] = useState(initial.method);
+    const [body, setBody] = useState(initial.body);
+    const [targets, setTargets] = useState(initial.targets);
     const [diffResponse, setDiffResponse] = useState<any>(null);
-    const [manualIgnores, setManualIgnores] = useState<string[]>([]);
+    const [manualIgnores, setManualIgnores] = useState<string[]>(initial.manualIgnores);
     const [newIgnorePath, setNewIgnorePath] = useState('');
     const [loading, setLoading] = useState(false);
     const [showRawResponses, setShowRawResponses] = useState(false);
 
+    // 設定値が変更されたらローカルストレージへ自動保存する副作用
+    useEffect(() => {
+        const config = { path, method, body, targets, manualIgnores };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    }, [path, method, body, targets, manualIgnores]);
+
     const handleTargetChange = (env: 'production' | 'staging' | 'baseline', value: string) => {
-        setTargets(prev => ({
+        setTargets((prev: any) => ({
             ...prev,
             [env]: value
         }));

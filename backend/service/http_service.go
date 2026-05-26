@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"maikubi/backend/client"
 	"maikubi/backend/model"
+	"strings"
 	"sync"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -141,16 +142,29 @@ func (s *HTTPService) compare(srcIdx, tgtIdx int, srcBody, tgtBody string) model
 	}
 }
 
-// canonicalJSON は、JSON文字列をキーをソートし余分な空白を排除した標準形式に正規化します。
-// JSONとしてパースできない場合は、元の文字列をそのまま返します。
-func (s *HTTPService) canonicalJSON(jsonStr string) string {
+// canonicalJSON は、JSONまたはXML文字列をキーをソートし余分な空白を排除した標準形式のJSON文字列に正規化します。
+// パースできない場合は、元の文字列をそのまま返します。
+func (s *HTTPService) canonicalJSON(str string) string {
 	var val interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &val); err != nil {
-		return jsonStr
+	var err error
+
+	trimmed := strings.TrimSpace(str)
+	if strings.HasPrefix(trimmed, "<") {
+		// XML の場合
+		val, err = ParseXMLToMap(str)
+		if err != nil {
+			return str
+		}
+	} else {
+		// JSON の場合
+		if err := json.Unmarshal([]byte(str), &val); err != nil {
+			return str
+		}
 	}
+
 	canonicalBytes, err := json.Marshal(val)
 	if err != nil {
-		return jsonStr
+		return str
 	}
 	return string(canonicalBytes)
 }

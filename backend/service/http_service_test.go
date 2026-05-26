@@ -314,3 +314,85 @@ func TestHTTPService_ExecuteDiffRequest_WithRequestError(t *testing.T) {
 		t.Error("Expected IsMatched to be false due to Baseline request error")
 	}
 }
+
+// TestHTTPService_ExecuteDiffRequest_XML は、XMLレスポンスの3環境複製・比較、
+// および自動ノイズカットが期待通りに動作することを検証します。
+func TestHTTPService_ExecuteDiffRequest_XML(t *testing.T) {
+	// 1. 各モック環境の起動
+	// Production (安定版、タイムスタンプ: 12345)
+	ts0 := newMockServer(t, http.StatusOK, `<response><id>100</id><name>Alice</name><role>User</role><timestamp>12345</timestamp></response>`)
+	// Staging (デグレーション版、名前・ロールの変更、新規emailフィールドの追加、タイムスタンプ: 99999)
+	ts1 := newMockServer(t, http.StatusOK, `<response><id>100</id><name>Alice Pro</name><role>Administrator</role><email>alice@example.com</email><timestamp>99999</timestamp></response>`)
+	// Baseline (安定版、Productionと同一コードだがタイムスタンプは 67890 と動的変化)
+	ts2 := newMockServer(t, http.StatusOK, `<response><id>100</id><name>Alice</name><role>User</role><timestamp>67890</timestamp></response>`)
+
+	svc := NewHTTPService()
+	diffReq := model.DiffRequest{
+		Method:  http.MethodGet,
+		Path:    "/xml",
+		Targets: model.Targets{
+			Production: ts0.URL,
+			Staging:    ts1.URL,
+			Baseline:   ts2.URL,
+		},
+	}
+
+	resp := svc.ExecuteDiffRequest(context.Background(), diffReq)
+
+	if len(resp.Responses) != 3 {
+		t.Fatalf("Expected 3 responses, got %d", len(resp.Responses))
+	}
+
+	// 2. セマンティック比較 (Staging と Baseline は値が異なるため不一致になるべき)
+	if resp.IsMatched {
+		t.Error("Expected IsMatched to be false due to Staging vs Baseline regressions")
+	}
+
+	// 3. 詳細な差分行 (DiffLines) の生成とノイズカット検証
+	// HTTPService でリクエストを処理後、app.goと同様に GenerateDiffLines を使って差分を分析します。
+	ds := NewDiffService()
+	lines, isMatched, err := ds.GenerateDiffLines(
+		resp.Responses[0].Body, // Production XML
+		resp.Responses[1].Body, // Staging XML
+		resp.Responses[2].Body, // Baseline XML
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("Expected no error from GenerateDiffLines, got %v", err)
+	}
+
+	if isMatched {
+		t.Error("Expected GenerateDiffLines isMatched to be false due to diffs")
+	}
+
+	// 4. 動的ノイズカットの検証
+	// Production と Baseline で timestamp (12345 vs 67890) が異なっているため、
+	// 自動的にノイズパス "$.response.timestamp" として検出され、matched 状態（白文字）で出力されていることを検証します。
+	timestampNoiseDetected := false
+	for _, line := range lines {
+		// JSONPath表現 "$.response.timestamp" になっていることを検証
+		if line.JSONPath == "$.response.timestamp" {
+			timestampNoiseDetected = true
+			if line.Status != "matched" {
+				t.Errorf("Expected timestamp noise line status to be 'matched', got '%s' (Text: %s)", line.Status, line.Text)
+			}
+		}
+	}
+
+	if !timestampNoiseDetected {
+		t.Error("Expected '$.response.timestamp' noise path to be detected and evaluated")
+	}
+
+	// 5. デグレーションの検証
+	// Stagingで追加された email フィールドが、追加差分 ('added') として検出されているか検証。
+	emailAddedDetected := false
+	for _, line := range lines {
+		if line.JSONPath == "$.response.email" && line.Status == "added" {
+			emailAddedDetected = true
+		}
+	}
+	if !emailAddedDetected {
+		t.Error("Expected '$.response.email' to be detected as 'added' difference")
+	}
+}
