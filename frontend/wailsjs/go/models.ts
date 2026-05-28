@@ -108,3 +108,28 @@ export namespace model {
 
 }
 
+export namespace service {
+	
+	export class ProtoField {
+	    name: string;
+	    type: string;
+	    typeName?: string;
+	    isRepeated: boolean;
+	    enumValues?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProtoField(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.typeName = source["typeName"];
+	        this.isRepeated = source["isRepeated"];
+	        this.enumValues = source["enumValues"];
+	    }
+	}
+
+}
+

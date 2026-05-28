@@ -47,13 +47,25 @@ func (a *App) SendRequest(method string, url string, body string) model.Response
 }
 
 // SendDiffRequest は、複数の環境（ターゲット）に対して同時にリクエストを送信し、自動ノイズカットおよびフラット化されたDiffLine配列を含めて結果を返します。
-func (a *App) SendDiffRequest(method string, path string, body string, targets model.Targets, manualIgnores []string) model.DiffResponse {
+func (a *App) SendDiffRequest(
+	method string,
+	path string,
+	body string,
+	targets model.Targets,
+	manualIgnores []string,
+	protoSchema string,
+	protoReqType string,
+	protoRespType string,
+) model.DiffResponse {
 	runtime.LogInfof(a.ctx, "SendDiffRequest started: %s %s", method, path)
 	diffReq := model.DiffRequest{
-		Method:  method,
-		Path:    path,
-		Body:    body,
-		Targets: targets,
+		Method:            method,
+		Path:              path,
+		Body:              body,
+		Targets:           targets,
+		ProtoSchema:       protoSchema,
+		ProtoRequestType:  protoReqType,
+		ProtoResponseType: protoRespType,
 	}
 	resp := a.httpService.ExecuteDiffRequest(a.ctx, diffReq)
 
@@ -92,4 +104,28 @@ func (a *App) RecomputeDiff(prodJSON, stagingJSON, baselineJSON string, manualIg
 		DiffLines: lines,
 		IsMatched: isMatched,
 	}
+}
+
+// GetProtoMessages は、.proto スキーマ定義からメッセージタイプ名一覧を取得します。
+func (a *App) GetProtoMessages(protoSchema string) ([]string, error) {
+	runtime.LogInfo(a.ctx, "GetProtoMessages called")
+	return service.GetProtoMessages(protoSchema)
+}
+
+// GetProtoMessageTemplate は、指定されたメッセージ名に基づき、空の JSON テンプレートを生成して返します。
+func (a *App) GetProtoMessageTemplate(protoSchema string, messageName string) (string, error) {
+	runtime.LogInfof(a.ctx, "GetProtoMessageTemplate called for %s", messageName)
+	return service.GetProtoMessageTemplate(protoSchema, messageName)
+}
+
+// GetProtoMessageFields は、指定されたメッセージ名に基づき、フィールドのメタデータ一覧を返します。
+func (a *App) GetProtoMessageFields(protoSchema string, messageName string) ([]service.ProtoField, error) {
+	runtime.LogInfof(a.ctx, "GetProtoMessageFields called for %s", messageName)
+	return service.GetProtoMessageFields(protoSchema, messageName)
+}
+
+// GetProtoSchemaFields は、.proto スキーマ定義内のすべてのメッセージのフィールド一覧を返します。
+func (a *App) GetProtoSchemaFields(protoSchema string) (map[string][]service.ProtoField, error) {
+	runtime.LogInfo(a.ctx, "GetProtoSchemaFields called")
+	return service.GetProtoSchemaFields(protoSchema)
 }

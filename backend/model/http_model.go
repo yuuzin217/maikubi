@@ -10,9 +10,12 @@ type Response struct {
 
 // Request は、送信されるHTTPリクエストのパラメータを表します。
 type Request struct {
-	Method string `json:"method"` // Method は、HTTPメソッド（GET, POSTなど）です。
-	URL    string `json:"url"`    // URL は、送信先のエンポポイントです。
-	Body   string `json:"body"`   // Body は、オプションのリクエストペイロード（通常はJSON）です。
+	Method            string `json:"method"`            // Method は、HTTPメソッド（GET, POSTなど）です。
+	URL               string `json:"url"`               // URL は、送信先のエンポポイントです。
+	Body              string `json:"body"`              // Body は、オプションのリクエストペイロード（通常はJSON）です。
+	ProtoSchema       string `json:"protoSchema"`       // ProtoSchema は、ユーザーがアップロードした .proto のスキーマ定義です。
+	ProtoRequestType  string `json:"protoRequestType"`  // ProtoRequestType は、リクエスト時のProtobufメッセージ型名です。
+	ProtoResponseType string `json:"protoResponseType"` // ProtoResponseType は、レスポンス時のProtobufメッセージ型名です。
 }
 
 // Targets は、送信先のベースURL（Production, Staging, Baseline）の定義です。
@@ -26,10 +29,13 @@ type Targets struct {
 
 // DiffRequest は、複数の環境（ターゲット）に対して同時に送るリクエストのパラメータを表します。
 type DiffRequest struct {
-	Method  string  `json:"method"`  // Method は、共通のHTTPメソッドです。
-	Path    string  `json:"path"`    // Path は、各ベースURLに続く共通のパスです。
-	Body    string  `json:"body"`    // Body は、共通のリクエストペイロードです。
-	Targets Targets `json:"targets"` // Targets は、送信先のベースURLの設定です。
+	Method            string  `json:"method"`            // Method は、共通のHTTPメソッドです。
+	Path              string  `json:"path"`              // Path は、各ベースURLに続く共通のパスです。
+	Body              string  `json:"body"`              // Body は、共通のリクエストペイロードです。
+	Targets           Targets `json:"targets"`           // Targets は、送信先のベースURLの設定です。
+	ProtoSchema       string  `json:"protoSchema"`       // ProtoSchema は、ユーザーがアップロードした .proto のスキーマ定義です。
+	ProtoRequestType  string  `json:"protoRequestType"`  // ProtoRequestType は、リクエスト時のProtobufメッセージ型名です。
+	ProtoResponseType string  `json:"protoResponseType"` // ProtoResponseType は、レスポンス時のProtobufメッセージ型名です。
 }
 
 // Comparison は、2つのレスポンス間の差分詳細を表します。

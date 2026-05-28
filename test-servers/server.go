@@ -4,11 +4,71 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/jhump/protoreflect/desc"
+	"github.com/jhump/protoreflect/desc/protoparse"
+	"github.com/jhump/protoreflect/dynamic"
 )
+
+const protoSchema = `
+syntax = "proto3";
+
+package maikubi;
+
+message UserRequest {
+    string name = 1;
+    string role = 2;
+}
+
+message UserResponse {
+    int32 id = 1;
+    string name = 2;
+    string role = 3;
+    string email = 4;
+    int64 timestamp = 5;
+    string request_id = 6;
+    Meta meta = 7;
+}
+
+message Meta {
+    string version = 1;
+    string server_env = 2;
+}
+`
+
+var (
+	userRequestDesc  *desc.MessageDescriptor
+	userResponseDesc *desc.MessageDescriptor
+	metaDesc         *desc.MessageDescriptor
+)
+
+func initProto() {
+	parser := protoparse.Parser{
+		Accessor: func(filename string) (io.ReadCloser, error) {
+			if filename == "user.proto" {
+				return io.NopCloser(strings.NewReader(protoSchema)), nil
+			}
+			return nil, fmt.Errorf("file not found: %s", filename)
+		},
+	}
+	fds, err := parser.ParseFiles("user.proto")
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse proto schema: %v", err))
+	}
+	fd := fds[0]
+	userRequestDesc = fd.FindMessage("maikubi.UserRequest")
+	userResponseDesc = fd.FindMessage("maikubi.UserResponse")
+	metaDesc = fd.FindMessage("maikubi.Meta")
+	if userRequestDesc == nil || userResponseDesc == nil || metaDesc == nil {
+		panic("failed to find message descriptors in proto schema")
+	}
+}
 
 type UserRequest struct {
 	Name string `json:"name"`
@@ -54,6 +114,7 @@ type XMLMeta struct {
 }
 
 func main() {
+	initProto()
 	envName := os.Getenv("ENV_NAME")
 	if envName == "" {
 		envName = "development"
@@ -174,6 +235,77 @@ func main() {
 
 		w.Write([]byte(xml.Header))
 		xml.NewEncoder(w).Encode(resp)
+	})
+
+	// Protobuf 用エンドポイント
+	http.HandleFunc("/api/v1/proto", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-protobuf")
+
+		reqID := fmt.Sprintf("%x-%x", rand.Int31(), rand.Int31())
+
+		name := "Alice"
+		role := "User"
+		var email string
+
+		// POST リクエストの場合、リクエストボディから Protobuf をデコード
+		if r.Method == http.MethodPost {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil && len(bodyBytes) > 0 {
+				reqMsg := dynamic.NewMessage(userRequestDesc)
+				if err := reqMsg.Unmarshal(bodyBytes); err == nil {
+					reqName, _ := reqMsg.TryGetFieldByName("name")
+					reqRole, _ := reqMsg.TryGetFieldByName("role")
+					if reqName != nil && reqName.(string) != "" {
+						name = reqName.(string)
+					}
+					if reqRole != nil && reqRole.(string) != "" {
+						role = reqRole.(string)
+					}
+				}
+			}
+		}
+
+		// Staging環境のみ、意図的なデグレーションを含める
+		if envName == "staging" {
+			name = name + " Pro"
+			role = "Administrator"
+			if r.Method == http.MethodPost {
+				email = "posted.user.pro@example.com"
+			} else {
+				email = "alice.pro@example.com"
+			}
+		}
+
+		// レスポンスの構築
+		respMsg := dynamic.NewMessage(userResponseDesc)
+		respMsg.SetFieldByName("id", int32(100))
+		respMsg.SetFieldByName("name", name)
+		respMsg.SetFieldByName("role", role)
+		if email != "" {
+			respMsg.SetFieldByName("email", email)
+		}
+		respMsg.SetFieldByName("timestamp", time.Now().UnixNano()/int64(time.Millisecond))
+		respMsg.SetFieldByName("request_id", reqID)
+
+		// ネストした Meta メッセージの構築
+		metaMsg := dynamic.NewMessage(metaDesc)
+		version := "v1.0.0"
+		if envName == "staging" {
+			version = "v1.1.0"
+		}
+		metaMsg.SetFieldByName("version", version)
+		metaMsg.SetFieldByName("server_env", envName)
+
+		respMsg.SetFieldByName("meta", metaMsg)
+
+		// シリアライズ
+		respBytes, err := respMsg.Marshal()
+		if err != nil {
+			http.Error(w, "Failed to marshal protobuf", http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(respBytes)
 	})
 
 	fmt.Printf("Starting mock API server [%s] on port %s...\n", envName, port)

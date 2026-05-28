@@ -1,8 +1,10 @@
 # Build stage
-FROM golang:1.20-alpine AS builder
+FROM golang:alpine AS builder
 WORKDIR /app
-COPY server.go .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o server server.go
+COPY go.mod go.sum ./
+RUN go mod download
+COPY test-servers/server.go ./test-servers/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o server ./test-servers/server.go
 
 # Run stage
 FROM alpine:latest

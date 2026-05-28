@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maikubi/backend/client"
 	"maikubi/backend/model"
 	"strings"
@@ -36,17 +37,52 @@ func NewHTTPService() *HTTPService {
 }
 
 // ExecuteRequest は、[model.Request] を処理し、[model.Response] を返します。
+// Protobufの設定がされている場合、透過的に JSON <=> Protobufバイナリ の相互変換を適用します。
 func (s *HTTPService) ExecuteRequest(ctx context.Context, req model.Request) model.Response {
-	status, body, err := s.client.DoRequest(ctx, req.Method, req.URL, req.Body)
+	var bodyToSend = req.Body
+	headers := make(map[string]string)
+
+	isProtoRequest := req.ProtoSchema != "" && req.ProtoRequestType != ""
+	if isProtoRequest && req.Body != "" {
+		// 1. JSONリクエストをProtobufバイナリに動的エンコード
+		protoBytes, err := EncodeProtobuf(req.ProtoSchema, req.ProtoRequestType, req.Body)
+		if err != nil {
+			return model.Response{
+				Error: fmt.Sprintf("failed to encode protobuf request: %v", err),
+			}
+		}
+		bodyToSend = string(protoBytes)
+		headers["Content-Type"] = "application/x-protobuf"
+	} else if req.Body != "" {
+		headers["Content-Type"] = "application/json"
+	}
+
+	status, bodyReceived, err := s.client.DoRequestWithHeaders(ctx, req.Method, req.URL, bodyToSend, headers)
 	if err != nil {
 		return model.Response{
 			Error: err.Error(),
 		}
 	}
 
+	var finalBody = bodyReceived
+	isProtoResponse := req.ProtoSchema != "" && req.ProtoResponseType != ""
+	if isProtoResponse && bodyReceived != "" {
+		// 2. 受信したProtobufバイナリをJSONに動的デコード
+		decodedMap, err := DecodeProtobuf(req.ProtoSchema, req.ProtoResponseType, []byte(bodyReceived))
+		if err != nil {
+			return model.Response{
+				Status: status,
+				Body:   bodyReceived,
+				Error:  fmt.Sprintf("failed to decode protobuf response: %v", err),
+			}
+		}
+		jsonBytes, _ := json.Marshal(decodedMap)
+		finalBody = string(jsonBytes)
+	}
+
 	return model.Response{
 		Status: status,
-		Body:   body,
+		Body:   finalBody,
 	}
 }
 
@@ -80,9 +116,12 @@ func (s *HTTPService) ExecuteDiffRequest(ctx context.Context, diffReq model.Diff
 			defer wg.Done()
 
 			req := model.Request{
-				Method: diffReq.Method,
-				URL:    baseURL + diffReq.Path,
-				Body:   diffReq.Body,
+				Method:            diffReq.Method,
+				URL:               baseURL + diffReq.Path,
+				Body:              diffReq.Body,
+				ProtoSchema:       diffReq.ProtoSchema,
+				ProtoRequestType:  diffReq.ProtoRequestType,
+				ProtoResponseType: diffReq.ProtoResponseType,
 			}
 			responses[index] = s.ExecuteRequest(c, req)
 		}(ctx, target.index, target.url)

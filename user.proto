@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package maikubi;
+
+// Request message type to send to /api/v1/proto
+message UserRequest {
+    string name = 1;
+    string role = 2;
+}
+
+// Response message type returned from /api/v1/proto
+message UserResponse {
+    int32 id = 1;
+    string name = 2;
+    string role = 3;
+    string email = 4;
+    int64 timestamp = 5;
+    string request_id = 6;
+    Meta meta = 7;
+}
+
+message Meta {
+    string version = 1;
+    string server_env = 2;
+}

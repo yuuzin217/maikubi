@@ -41,9 +41,19 @@ func NewHTTPClient(timeout time.Duration) *HTTPClient {
 // ボディが提供されている場合、"Content-Type" ヘッダーに "application/json" を設定します。
 // HTTPステータス文字列、レスポンスボディ（文字列）、および発生したエラーを返します。
 func (c *HTTPClient) DoRequest(ctx context.Context, method, url, body string) (string, string, error) {
+	var headers map[string]string
+	if body != "" {
+		headers = map[string]string{headerContentType: mimeJSON}
+	}
+	return c.DoRequestWithHeaders(ctx, method, url, body, headers)
+}
+
+// DoRequestWithHeaders は、カスタムヘッダーを指定してHTTPリクエストを実行します。
+// ボディは文字列から []byte キャストしてそのままバイナリとして透過的に転送されます。
+func (c *HTTPClient) DoRequestWithHeaders(ctx context.Context, method, url, body string, headers map[string]string) (string, string, error) {
 	var reqBody io.Reader
 	if body != "" {
-		reqBody = bytes.NewBufferString(body)
+		reqBody = bytes.NewBuffer([]byte(body))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
@@ -51,8 +61,8 @@ func (c *HTTPClient) DoRequest(ctx context.Context, method, url, body string) (s
 		return "", "", err
 	}
 
-	if body != "" {
-		req.Header.Set(headerContentType, mimeJSON)
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := c.httpClient.Do(req)
